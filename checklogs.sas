@@ -54,29 +54,54 @@ Date: 16NOV2018
 Requestor: Maintenance
 Modification: Change 'abort abend' to '%abort'.
 Modifier: Richann Watson
+
+Date: 28JUN2021
+Requestor: Maintenance
+Modification: Write the log summary at the top of the log instead of the bottom
+Modifier: Richann Watson
+
+Date: 16SEP2021
+Requestor: Maintenance
+Modification: Allowed for exclusion of some log files
+Modifier: Richann Watson
+
+Date: 22JUN2022
+Requestor: Maintenance
+Modification: Modification purpose: Modified code to use %bquote instead of double quoting macro variables.
+Modifier: Richann Watson
 ----------------------------------------------------------------------------------------- 
 ****************************************************************************************/
 
 /* retrieve all the logs in the specified directory */
-%macro checklogs(loc=,  /* location of where the log files are stored       */
-                        /* can add multiple locations but they need to be   */
-                        /* separated by the default delimiter '@' or the    */
-                        /* user specified delimiter                         */
-                 loc2=, /* location of where report is stored (optional)    */
-                 fnm=,  /* which types of files to look at (optional)       */
-                        /* e.g., Tables – t_, Figures – f_, Listings – l_   */ 
-                        /* separate types of files by delimiter indicated in*/
-                        /* the delm macro parameter (e.g., t_@f_)           */
-                 delm=@,/* delimiter used to separate types of files (opt'l)*/
-                 msgf=, /* FULL file name (includes location) of spreadsheet*/
-                        /* where the user specified log messages are stored */
-                 msgs=, /* sheet/tab name in spreadsheet that contains the  */
-                        /* unwanted log messages default to 'Sheet1' (opt'l)*/
-                 msgv=, /* name of column in spreadsheet (convert spaces to */
-                        /* underscores - must be specified if file specified*/
-                        /* (conditionally required)                         */
-                 out=   /* log report name (optional)                       */);
+%macro checklogs(loc=,      /* location of where the log files are stored       */
+                            /* can add multiple locations but they need to be   */
+                            /* separated by the default delimiter '@' or the    */
+                            /* user specified delimiter                         */
+                 loc2=,     /* location of where report is stored (optional)    */
+                 fnm=,      /* which types of files to look at (optional)       */
+                            /* e.g., Tables – t_, Figures – f_, Listings – l_   */ 
+                            /* separate types of files by delimiter indicated in*/
+                            /* the delm macro parameter (e.g., t_@f_)           */
+                 excl = ,   /* list files that are to be excluded from check    */
+                            /* separate types of files by delimiter indicated in*/
+                            /* the delm macro parameter (e.g., t_@f_)           */
+                            /* (optional) e.g., ALL_CHK, LOG_CHECK              */
+                 onelog = N,/* check only one the log -- need to specify the    */
+                            /* following: loc (only one location),              */
+                            /*            fnm (full name of the log file)       */
+                            /* cannot be used with excl option                  */
+                 delm=@,    /* delimiter used to separate types of files (opt'l)*/
+                 msgf=,     /* FULL file name (includes location) of spreadsheet*/
+                            /* where the user specified log messages are stored */
+                 msgs=,     /* sheet/tab name in spreadsheet that contains the  */
+                            /* unwanted log messages default to 'Sheet1' (opt'l)*/
+                 msgv=,     /* name of column in spreadsheet (convert spaces to */
+                            /* underscores - must be specified if file specified*/
+                            /* (conditionally required)                         */
+                 out=       /* log report name (optional)                       */) / minoperator;
 
+
+   options noxwait xsync;
              
   /* need to determine the environment in which this is executed   */
   /* syntax for some commands vary from environment to environment */
@@ -95,7 +120,8 @@ Modifier: Richann Watson
   %end;
 
   /* if a filename is specified then build the where clause */
-  %if "&fnm" ne "" %then %do;  /* begin conditional if "&fnm" ne "" */
+  /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+  %if %bquote(&fnm) ne  %then %do;  /* begin conditional if "&fnm" ne "" */
     data _null_;
       length fullwhr $2000.;
       retain fullwhr;
@@ -106,25 +132,70 @@ Modifier: Richann Watson
 
       /* loop through each type of filename to build the where clause */
       /* embed &typ in double quotes in case filename has special characters/spaces */
-      %do %while ("&typ" ne "");  /* begin do while ("&typ" ne "") */
+      /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+      %do %while (%bquote(&typ) ne );  /* begin do while ("&typ" ne "") */
 
-        partwhr = catt("index(flog, '", "&typ", "')");
-        fullwhr = catx(" or ", fullwhr, partwhr);
+        %if %upcase(&onelog) in (N NO) %then %do;
+           partwhr = catt("index(upcase(flog), '", "&typ", "')");
+           fullwhr = catx(" or ", fullwhr, partwhr);
+        %end;
+        %else %if %upcase(&onelog) in (Y YES) %then %do;
+           fullwhr = catt("upcase(flog) = '", "&typ", "'");
+        %end;
 
-        call symputx('fullwhr', fullwhr);
+        call symputx('fullwhr', fullwhr, 'g');
 
         %let f = %eval(&f + 1);
         %let typ = %scan(&fnm, &f, "&delm");
       %end;  /* end do while ("&typ" ne "") */
 
     run;
-  %end;  /* end conditional if "&fnm" ne "" */
+  %end;  /* end conditional if "&fnm" ne "" */ 
+
+  /* 20210916 - rwatson - if a excluded filename is specified then build the where clause */
+  /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+  %if %bquote(&excl) ne  %then %do;  /* begin conditional if "&excl" ne "" */
+      
+     %if %upcase(&onelog) in (Y YES) %then %do;
+        %put %sysfunc(compress(E RROR:)) FILE EXCLUSION CANNOT BE SPECIFIED FOR ONE LOG;
+        %abort cancel;
+     %end;
+     %else %do;
+        data _null_;
+           length exclwhr $2000.;
+           retain exclwhr;
+
+           /* read in each log file and check for undesired messages */
+           %let e = 1;
+           %let typ = %upcase(%scan(&excl, &e, "&delm"));
+
+           /* loop through each type of excluded filename to build the where clause */
+           /* embed &typ in double quotes in case filename has special characters/spaces */
+           /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+           %do %while (%bquote(&typ) ne  );  /* begin do while ("&typ" ne "") */
+              partwhr = catt("^(index(upcase(flog), '", "&typ", "'))");
+              exclwhr = catx(" and ", exclwhr, partwhr);
+               /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+              %if %bquote(&fnm) ne  %then %do;
+                 call symputx('exclwhr', cat(' and ', exclwhr), 'g');
+              %end;
+              %else %do;
+                 call symputx('exclwhr', cat(' where ', exclwhr), 'g');
+              %end;
+
+              %let e = %eval(&e + 1);
+              %let typ = %upcase(%scan(&excl, &e, "&delm"));
+           %end;  /* end do while ("&typ" ne "") */
+        run;
+     %end; /* end else do for %upcase(&onelog) in (Y YES) */
+  %end;  /* end conditional if "&excl" ne "" */
 
   /* if a spreadsheet is provided with unwanted log messages */
   /* then need to use that to build search criteria to be    */
   /* used later in the program                               */
   %let fullmsg = "";
-  %if "&msgf" ne "" %then %do;  /* begin conditional if "&msgf" ne "" */
+  /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+  %if %bquote(&msgf) ne  %then %do;  /* begin conditional if "&msgf" ne "" */
     libname logmsg xlsx "&msgf";
 
     /* need to make sure spreadsheet exists if it is specified */
@@ -134,16 +205,15 @@ Modifier: Richann Watson
       data _null_;
         length fullmsg1 fullmsg2 fullmsg3 $2000;
         retain fullmsg1 fullmsg2 fullmsg3;
-        set %if "&msgs" ne "" %then logmsg."&msgs"n;
+        /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+        set %if %bquote(&msgs) ne  %then logmsg."&msgs"n;
             %else logmsg."Sheet1"n;
             end = eof; /* need this semicolon to end the set statement */
 
         partmsg = catt('index(upcase(line), "', (upcase(&msgv)), '")');
 
-        if length(fullmsg1) + length(partmsg) <= 2000 then 
-             fullmsg1 = catx(" or ", fullmsg1, partmsg);
-        else if length(fullmsg2) + length(partmsg) <= 2000 then 
-             fullmsg2 = catx(" or ", fullmsg2, partmsg);
+        if length(fullmsg1) + length(partmsg) <= 2000 then fullmsg1 = catx(" or ", fullmsg1, partmsg);
+        else if length(fullmsg2) + length(partmsg) <= 2000 then fullmsg2 = catx(" or ", fullmsg2, partmsg);
         else fullmsg3 = catx(" or ", fullmsg3, partmsg);
 
         if eof then do;
@@ -167,7 +237,8 @@ Modifier: Richann Watson
   %let lcn1 = %scan(&loc, &g, "&delm");
 
   /* attempt to create a libname for each location specified */
-  %do %while ("&&lcn&g" ne "");
+  /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+  %do %while (%bquote(&&lcn&g) ne );
     %let g = %eval(&g + 1);
     %let lcn&g = %scan(&loc, &g, "&delm");
   %end;
@@ -187,9 +258,10 @@ Modifier: Richann Watson
 
         /* create a default location for report if report location not specified */
         /* only create default location for first location that exists           */
-        %if "&dloc" = "" %then %do;
+        /* 20220622 - rwatson - modified to use %bquote instead of "..." = "" */
+        %if %bquote(&dloc) =  %then %do;
            %let dloc = &&lcn&k; 
-       %end;
+        %end;
 
        /* need to build pipe directory statement as a macro var  */
        /* because the statement requires a series of single and  */
@@ -219,11 +291,6 @@ Modifier: Richann Watson
          /* if there are no spaces then there should be 5 tokens           */
          numtok = countw(filename,' ','q');
 
-         /* parse out the string to get the log name */
-         /* note on the scan function a negative #   */
-         /* scans from the right and a positive #    */
-         /* scans from the left                      */
-         /* for log keep only first part (e.g. 'ae') */
          /* need to build the flog value based on number of tokens */
          /* if there are spaces in the log name then need to grab  */
          /* each piece of the log name                             */
@@ -231,8 +298,6 @@ Modifier: Richann Watson
          /* it needs to be removed by substituting a blank         */
          /* need to do within conditional if statements since num  */
          /* of tokens for Windows is different than Unix           */ 
-         *flog = scan(scan(filename, -1, " "), 1);
-
          /* entire section below allows for either Windows or Unix */
          /*********** WINDOWS ENVIRONMENT ************/
          /* the pipe will read in the information in */
@@ -295,7 +360,10 @@ Modifier: Richann Watson
                      : currtims separated by "@",
                      : cntlogs
          from logs&k
-         %if "&fnm" ne "" %then where &fullwhr;  
+
+         /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+         %if %bquote(&fnm) ne  %then where &fullwhr;
+         %if %bquote(&excl) ne  %then &exclwhr;
            ; /* need to keep extra semicolon */ 
        quit;
 
@@ -310,10 +378,11 @@ Modifier: Richann Watson
 
          /* loop thru each log in the directory and look for undesirable messages */
          /* embed &lg in double quotes in case filename has special characters/spaces */
-         %do %while ("&lg" ne "");  /* begin do while ("&lg" ne "") */
+         /* 20220622 - rwatson - modified to use %bquote instead of "..." ne "" */
+         %do %while (%bquote(&lg) ne  );  /* begin do while ("&lg" ne "") */
            /* read the log file into a SAS data set to parse the text */ 
            data logck&k&x;
-             infile "&&lcn&k.&slash.&lg..log" truncover pad;
+             infile "&&lcn&k.&slash.&lg..log" truncover pad end = last;
 
              /* use $char1000 in order to maintain spacing to get correct line number */
              input line $char1000.;
@@ -321,27 +390,64 @@ Modifier: Richann Watson
              /* need to retain the line number so that when a message is encountered */
              /* then will know hwere in log to find it                               */
              retain lineno;
-
              if _n_ = 1 then lineno = .;
-             if anydigit(line) = 1 then 
-                lineno = input(substr(line, 1, notdigit(line)-1),best.);
+             if anydigit(line) = 1 then lineno = input(substr(line, 1, notdigit(line)-1),best.);
+
+             /* confirm the program ran to the end and entire log was reviewed, then output a record */
+             if find(line, 'SAS CAMPUS DRIVE', 'i') then do;
+                unwant_cnt = -1;
+                output;
+             end; 
+
+             /* find the date on which the log was output */
+             if find(line, 'THE SAS SYSTEM', 'i') and line =: '1' then do;
+                line = strip(substr(line, find(line, 'SYSTEM', 'i') + 7));
+                unwant_cnt = 0;
+                output;
+             end;
 
              /* keep only the records that had an undesirable message */
-             if index(upcase(line), "WARNING") or
-                index(upcase(line), "ERROR") or
-                index(upcase(line), "UNINITIALIZED") or
-                index(upcase(line), "NOTE: MERGE") or
-                index(upcase(line), "MORE THAN ONE DATA SET WITH REPEATS OF BY") or
-                index(upcase(line), "VALUES HAVE BEEN CONVERTED") or
-                index(upcase(line), "MISSING VALUES WERE GENERATED AS A RESULT") or
-                index(upcase(line), "INVALID DATA") or
-                index(upcase(line), "INVALID NUMERIC DATA") or
-                index(upcase(line), "AT LEAST ONE W.D FORMAT TOO SMALL")
+             retain unwant_cnt 0;
+             if find(line, "WARNING", 'i') or
+                find(line, "ERROR", 'i') or
+                find(line, "UNINITIALIZED", 'i') or
+                find(line, "NOTE: MERGE", 'i') or
+                find(line, "MORE THAN ONE DATA SET WITH REPEATS OF BY", 'i') or
+                find(line, "VALUES HAVE BEEN CONVERTED", 'i') or
+                find(line, "MISSING VALUES WERE GENERATED AS A RESULT", 'i') or
+                find(line, "INVALID DATA", 'i') or
+                find(line, "INVALID NUMERIC DATA", 'i') or
+                find(line, "AT LEAST ONE W.D FORMAT TOO SMALL", 'i') or
+                find(line, "DOES NOT EXIST", 'i') or
+                find(line, "UNKNOWN", 'i') or
+                find(line, "COULD NOT BE LOADED", 'i') or
+                find(line, "WHERE CLAUSE HAS BEEN REPLACED", 'i') or
+                (find(line, "FYI", 'i') and not(find(line, "IDENTIFYING", 'i')))
+
+                /********** DELETE IF NO SPREADSHEET OF UNWANTED MESSAGES IS USED **********/
                 /* allow for user specific messages to be stored in a spreadsheet */
                 %if %symexist(fullmsg1) %then or &fullmsg1;
                 %if %symexist(fullmsg2) %then or &fullmsg2;
                 %if %symexist(fullmsg3) %then or &fullmsg3;
-                ; /* need extra semicolon to end if statement */
+                then do; /* need extra semicolon to end if statement */
+                unwant_cnt + 1;
+                output;
+             end;
+           run;
+
+           /* because there are sometimes issues with SAS certificate */
+           /* there will be warnings in the logs that are expected    */
+           /* these need to be removed                                */
+           data logck&k&x._2;
+             set logck&k&x.;
+             if find(line, 'UNABLE TO COPY SASUSER', 'i') or
+                find(line, 'BASE PRODUCT PRODUCT', 'i') or
+                find(line, 'EXPIRE WITHIN', 'i') or
+                (find(line, 'BASE SAS SOFTWARE', 'i') and 
+                find(line, 'EXPIRING SOON', 'i')) or
+                find(line, 'UPCOMING EXPIRATION', 'i') or
+                find(line, 'SCHEDULED TO EXPIRE', 'i') or
+                find(line, 'SETINIT TO OBTAIN MORE INFO', 'i') then delete;
 
              /* create variables that will contain the log that is being scanned */
              /* as well as the and date and time that the log file was created   */
@@ -364,24 +470,9 @@ Modifier: Richann Watson
              nolog = .;
            run;
 
-           /* because there are sometimes issues with SAS certificate */
-           /* there will be warnings in the logs that are expected    */
-           /* these need to be removed                                */
-           data logck&k&x._2;
-             set logck&k&x.;
-             if index(upcase(line), 'UNABLE TO COPY SASUSER') or
-                index(upcase(line), 'BASE PRODUCT PRODUCT') or
-                index(upcase(line), 'EXPIRE WITHIN') or
-                (index(upcase(line), 'BASE SAS SOFTWARE') and 
-                 index(upcase(line), 'EXPIRING SOON')) or
-                index(upcase(line), 'UPCOMING EXPIRATION') or
-                index(upcase(line), 'SCHEDULED TO EXPIRE') or
-                index(upcase(line), 'SETINIT TO OBTAIN MORE INFO') then delete;
-           run;
-
            /* determine the number of undesired messages were in the log */
            data _null_;
-            if 0 then set logck&k&x._2 nobs=final;
+             if 0 then set logck&k&x._2 nobs=final;
              call symputx('numobs',left(put(final, 8.)));
            run;
 
@@ -405,6 +496,7 @@ Modifier: Richann Watson
                loglc = "&&lcn&k";
                label loglc = 'Log Location';
                nolog = .;
+               unwant_cnt = .;
                output;
              run;
            %end;  /* end conditional if &numobs = 0 */
@@ -435,13 +527,8 @@ Modifier: Richann Watson
 
        %else %do;
          data nolog&k;
-           length lognm $25. line $1000. logdt logtm $10. loglc $200.;
-           line = '';
-           lognm = '';
-           logdt = '';
-           logtm = '';
-           logrs = ''; 
-           lineno = .;
+           length lognm $25. line $1000. logdt logtm $10. loglc $200. logrs $20.;
+           call missing(lognm, line, logdt, logtm, logrs, lineno);
            loglc = "&&lcn&k";
            label loglc = 'Log Location';
            nolog = 1;
@@ -449,7 +536,6 @@ Modifier: Richann Watson
          run;       
 
          %let exist = %sysfunc(exist(alllogs));
-
          %if &exist = 0 %then %do;
            data alllogs;
              set nolog&k;
@@ -466,30 +552,68 @@ Modifier: Richann Watson
      %else %do;
        %put %sysfunc(compress(W ARNING:)) "directory &&lcn&k does not exist";
      %end;
-
-  %end;  /* begin do i = 1 to %eval(&g - 1) */
-
-  /* if the name of the output file is not specified then default to the name */
-  %if "&out" =  "" %then %do;
-    %let out=all_checklogs;
-  %end;
-
-  /* if the name of the output file is not specified then default to the name */
-  %if "&loc2" = "" %then %do;
-    data _null_;
-      call symputx("loc2", "&dloc");
-    run;
-  %end;
+  %end;  /* end do i = 1 to %eval(&g - 1) */
 
   %let exist = %sysfunc(exist(alllogs));
   %if &exist ne 0 %then %do;
-     /* since a list of files can be provided then the files may not be in order */
-     proc sort data=alllogs presorted;
-       by lognm line;
-     run;
+   /* if one log is being checked then append results to top of log     */
+   /* if more than one log is being checked then output a single report */
+   %if %upcase(&onelog) in (Y YES) %then %do;
+      /* 20210628 - rwatson - split process into two steps - write the log check summary to the temporary file */
+      data _null_;
+         set alllogs end = eof;
+         file "&loc&slash&fnm._TEMP.log";
+         if _n_ = 1 then do;
+            put '=========================================================================== Start Log Check';
+            put "Summary of ERRORS, WARNINGS, AND Unexpected Notes for:";
+            put "&fnm";
+         end;
+         if unwant_cnt = -1 then put '## Program Completed Run and LOG was successfully written.';
+         else if unwant_cnt = 0 then put '## LOGFILE Dated: ' line;
+         else put unwant_cnt '         ' lineno '   ' line;
+         if eof then do;
+            put '============================================================================= End Log Check';
+         end;
+      run;
+
+      /* 20210628 - rwatson - add the original log after the summary in the temporary file */
+      data _null_;            
+         infile "&loc&slash&fnm..log";
+         input;
+         file "&loc&slash&fnm._TEMP.log" mod;
+         put _infile_;
+      run;
+
+      /* 20210628 - rwatson - delete the original log file and rename the temporary file to the original log file name */
+      %sysexec del "&loc&slash&fnm..log";
+      %put %sysfunc(sleep(1));
+      data _null_;
+        x %unquote( %str(%') rename "&loc&slash&fnm._TEMP.log" &fnm..log %str(%'));
+      run;
+   %end; /* end conditional if %upcase(&onelog) in (Y YES) */
+   %else %do;
+      /* if the name of the output file is not specified then default to the name */
+      /* 20220622 - rwatson - modified to use %bquote instead of "..." = "" */
+      %if %bquote(&out) =   %then %do;
+         %let out = all_checklogs;
+      %end;
+
+      /* if the name of the output file is not specified then default to the name */
+      /* 20220622 - rwatson - modified to use %bquote instead of "..." = "" */
+      %if %bquote(&loc2) =  %then %do;
+         data _null_;
+            call symputx("loc2", "&dloc");
+         run;
+      %end;
+
+      data alllogs_rpt;
+         set alllogs;
+         where unwant_cnt ne 0;
+         if unwant_cnt = -1 then line = "Program Completed Run and LOG was successfully written";
+      run;
 
      /* sort the final report by location */
-     proc sort data = alllogs;
+     proc sort data = alllogs_rpt;
        by loglc nolog lognm lineno;
      run;
 
@@ -528,7 +652,8 @@ Modifier: Richann Watson
 
      ods rtf close;
      ods listing;
-  %end;
+     %end; /* end of else do for conditional if &onelog = Y */
+  %end; /* end conditional if &exist ne 0 */
   %else %do;      
      %put %sysfunc(compress(W ARNING:)) "None of the log locations specified exist";
   %end;
