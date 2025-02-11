@@ -1,23 +1,25 @@
 /****************************************************************************************
-Program:          user_funcs_ISO_DATES_PT.sas
+Program:          FN_ISODTMPT.sas
 SAS Version:      SAS 9.4m7
 Developer:        Richann Watson 
 Date:             2022-06-04 
 Operating Sys:    Windows 10
+Purppose:         User-defined function that will convert individual date and time components to ISO 8601 DTC
 ----------------------------------------------------------------------------------------- 
 
 Revision History:
-Date: 
-Requestor: 
-Modification: 
+Date:             2025-01-15
+Modification:     Changed name of function to align with name of other user-defined function
 Modifier: 
 ----------------------------------------------------------------------------------------- 
+
+NOTE: This is retrieved from https://github.com/rwatson724/Programming-Code-From-Papers/users_funcs_ISO_DATES_PT.sas
 ****************************************************************************************/
-libname fcmp 'C:\Users\gonza\Desktop\GitHub\SAS-Papers\FCMP';
+libname fcmp 'C:\Desktop\GitHub\Programming-Code-From-Papers';
 
 proc fcmp outlib = fcmp.funcs.ISO_DATES_PT;
  
-   function dtisopt(mn $, dy $, yr $, hr $, mi $, sc $) $;  /* all inputs are character so need $ after input argument */
+   function isodtmpt(mn $, dy $, yr $, hr $, mi $, sc $) $;  /* all inputs are character so need $ after input argument */
       length NEWDTC newdttm $20 isodt $10 isotm $8;  /* for all character variables in function need to specify length */
  
       /* use new variables to be build ISO 8601 date time */
