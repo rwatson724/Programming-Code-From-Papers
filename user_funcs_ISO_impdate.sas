@@ -12,8 +12,11 @@ Requestor:
 Modification: 
 Modifier: 
 ----------------------------------------------------------------------------------------- 
+
+NOTE: This is retrieved from https://github.com/rwatson724/Programming-Code-From-Papers/users_funcs_ISO_impdate.sas
+----------------------------------------------------------------------------------------- 
 ****************************************************************************************/
-libname fcmp 'C:\Users\gonza\OneDrive - datarichconsulting.com\Desktop\Conferences\Impute Dates';
+libname fcmp 'C:\Desktop\GitHub\Programming-Code-From-Papers';
 
 proc fcmp outlib = fcmp.funcs.ISO_impdate;
    function isoimpdt(dattim $, refdt, imputfl $, imptyp $, impnum $, useref $); 
