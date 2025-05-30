@@ -1,6 +1,6 @@
 /****************************************************************************************
 Program:          user_funcs_ISO_impdate.sas
-SAS Version:      SAS 9.4m8
+SAS Version:      SAS 9.4m7
 Developer:        Richann Watson 
 Date:             2024-03-16 
 Operating Sys:    Windows 11
@@ -11,19 +11,19 @@ Date:
 Requestor: 
 Modification: 
 Modifier: 
------------------------------------------------------------------------------------------ 
+-----------------------------------------------------------------------------------------
 
 NOTE: This is retrieved from https://github.com/rwatson724/Programming-Code-From-Papers/users_funcs_ISO_impdate.sas
------------------------------------------------------------------------------------------ 
 ****************************************************************************************/
-libname fcmp 'C:\Desktop\GitHub\Programming-Code-From-Papers';
+libname fcmp 'C:\Users\gonza\OneDrive - datarichconsulting.com\Desktop\Conferences\Impute Dates';
 
 proc fcmp outlib = fcmp.funcs.ISO_impdate;
-   function isoimpdt(dattim $, refdt, imputfl $, imptyp $, impnum $, useref $); 
+   function isoimpdt(dattim $, refdt, imputfl $, imptyp $); 
       outargs imputfl;
 
-      length impdt 8 ___dt $10 __dtyr __dtmo __dtdy __impmo __impdy 8 imputfl $1 __tempvar $2;
-      format impdt date9.;
+      length impdt 8 ___dt $10 __dtyr __dtmo __dtdy __impmo __impdy __impmos __impdys __impmoe __impdye __impmom __impdym 8 
+             imputfl __start __end __mid $1 __tempvar $2;
+      format impdt refdt date9.;
 
       /* extract the date portion only */
       ___dt = strip(scan(dattim, 1, 'T'));
@@ -43,44 +43,45 @@ proc fcmp outlib = fcmp.funcs.ISO_impdate;
       /* determine the imputation month and imputation day number */
       /* it is assumed that the argument applies to both month and day */
       /* if need different values then need an additional argument     */
-      if upcase(impnum) in ('S' 'F' 'B' '1') then do;
-         __impmo = 1;
-         __impdy = 1;
+      if prxmatch('/S|F|B/i', imptyp) then do;
+         __start = 1;
+         __impmos = 1;
+         __impdys = 1;
       end;
-      else if upcase(impnum) in ('L' 'E' '31' '30') then do;
-         __impmo = 12;
-         if not missing(__dtmo) and __dtmo ne 12 then __impdy = day(mdy(__dtmo + 1, 1, __dtyr) - 1);
-         else if missing(__dtmo) or __dtmo = 12 then __impdy = 31;
+      if prxmatch('/L|E/i', imptyp) then do;
+         __end = 1;
+         __impmoe = 12;
+         if not missing(__dtmo) and __dtmo ne 12 then __impdye = day(mdy(__dtmo + 1, 1, __dtyr) - 1);
+         else if missing(__dtmo) or __dtmo = 12 then __impdye = 31;
       end;
-      else if upcase(impnum) in ('M' 'H' '6' '15') then do;
-         __impmo = 6;
-         __impdy = 15;
+      if prxmatch('/M|H/i', imptyp) then do;
+         __mid = 1;
+         __impmom = 6;
+         __impdym = 15;
       end;
-
-      /* impute dates based on the following rules:                                                      */
-      /* missing year - for start date then impute to the reference date                                 */
-      /*                for end date no imputation is to be done                                         */
-      /* missing month - for start date if year same as reference date then impute to reference date     */
-      /*                 for start date if year not same as ref date then impute to 1st mon using impmn  */
-      /*                 for end date impute to end of year regardless of year                           */
-      /* missing day - for start date if year and month same as ref date then impute to ref date         */
-      /*               for start date if year and month not same as ref date then impute day using impdy */
-      /*               for end date impute to the end of the month regardless of year and month          */
+      __impmo = coalesce(__impmos, __impmoe, __impmom);
+      __impdy = coalesce(__impdys, __impdye, __impdym);
+      
+      /* impute dates based on the following rules: denoted in IMPTYP argument */
       if not missing(__dtyr) then do;
          if nmiss(__dtmo, __dtdy) = 0 then impdt = mdy(__dtmo, __dtdy, __dtyr);
          else if missing(__dtmo) then do;
             imputfl = 'M';
-            if upcase(first(useref)) = 'Y' and upcase(imptyp) = 'ST' and __dtyr = year(refdt) then impdt = refdt;
+            if prxmatch('/R|Y/i', imptyp) and __dtyr = year(refdt) then impdt = refdt;
+            else if __dtyr < year(refdt) and __end = 1 then impdt = mdy(__impmoe, __impdye, __dtyr);
+            else if __dtyr < year(refdt) and __mid = 1 then impdt = mdy(__impmom, __impdym, __dtyr);
             else impdt = mdy(__impmo, __impdy, __dtyr);
          end;
          else if missing(__dtdy) then do;
              imputfl = 'D';
-            if upcase(first(useref)) = 'Y' and upcase(imptyp) = 'ST' and __dtyr = year(refdt) and __dtmo = month(refdt) then impdt = refdt;
+            if prxmatch('/R|Y/i', imptyp) and __dtyr = year(refdt) and __dtmo = month(refdt) then impdt = refdt;
+            else if mdy(1, __dtmo, __dtyr) < mdy(1, month(refdt), year(refdt)) and __end = 1 then impdt = mdy(__dtmo, __impdye, __dtyr);
+            else if mdy(1, __dtmo, __dtyr) < mdy(1, month(refdt), year(refdt)) and __mid = 1 then impdt = mdy(__dtmo, __impdym, __dtyr);
             else impdt = mdy(__dtmo, __impdy, __dtyr);
          end;
       end;
       else if missing(__dtyr) then do;
-         if upcase(first(useref)) = 'Y' and upcase(imptyp) = 'ST' then do;
+         if find(imptyp, 'Y', 'i') then do;
             impdt = refdt;
             imputfl = 'Y';
          end;
